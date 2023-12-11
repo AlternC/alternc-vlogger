@@ -1,0 +1,290 @@
+#!/usr/bin/php
+<?php
+
+/**
+ * This is a PHP-written replacement for vlogger.
+ * crudely copied from steve j. kondik <shade@chemlab.org> perl version
+ * all options from perl vlogger are available but -i and -d, which are ignored and unimplemented.
+ * 
+ * This script will take piped logs in STDIN, break off the first component
+ * and log the line into the proper directory under $LOGDIR.  it will roll the
+ * logs over at midnight on-the-fly and maintain a symlink to the most recent log.
+ * launch with -h to get a full help.
+ * @copyright Steve J. Kondik  <shade@chemlab.org> for the perl version
+ * @copyright Benjamin Sonntag <benjamin@octopuce.fr> 2023, for the PHP version
+ * (we wrote that for AlternC, to remove a dependency on an unmaintained perl software & debian package.)
+ */
+
+// ----------------------------------------------------------------------
+// UTILITY FUNCTIONS
+
+function fatal($str) {
+    echo "FATAL: $str\n";
+    exit(1);
+}
+
+// call fputs, and flush the file if it's not blocked by - option
+function myfputs($fh,$str) {
+    global $options;
+    fputs($fh,$str);
+    if (!isset($options["a"]))
+        fflush($fh);
+}
+
+// returns an integer which is the iso8601 representation of a date, like 20231231
+// allows for an easy comparison of dates.
+function daytime($ts) {
+    return intval(date("Ymd",$ts));
+}
+
+// format a string according to strftime. 
+function time2str($template,$time) {
+    // TODO: replace this by a rewrite of strftime when it disappear from php?
+    return strftime($template,$time);
+}
+
+// ----------------------------------------------------------------------
+// OPTION PARSING
+
+// -i & -d are ignored
+$options = getopt("f:t:s:hu:g:aeivr:d:n",[]);
+
+// rest_index option of getopt appeared in php7.1 we will try to not rely on it (so this program still works with PHP5.6 up to PHP8.3)
+// we emulate rest_index from getopt:
+$goa=1;
+foreach($options as $k=>$v)
+    if ($v===false) $goa++; else $goa+=2;
+
+// if called with -h OR if we don't have exactly 1 argument more than the options, show USAGE and exit
+if (isset($options["h"]) || count($argv)!=($goa+1)) {
+   usage();
+}
+
+$logdir=$argv[$goa];
+if (!is_dir($logdir)) {
+    echo "Can't open '$logdir': is not a directory\n";
+    exit();
+}
+
+// set uid & gid if requested and launched as root:
+if (posix_geteuid()==0) {
+    if (isset($options["g"])) {
+        if ( !($guid=posix_getgrnam($options["g"])) ) {
+            fatal("Can't run as root on an nonexistant group."); 
+        }
+        if (!posix_setgid($guid["gid"])) {
+            fatal("Can't setgid to ".$guid["gid"]);
+        }
+    }
+    if (isset($options["u"])) {
+        if ( !($uuid=posix_getpwnam($options["u"])) ) {
+            fatal("Can't run as root on an nonexistant user."); 
+        }
+        if (!posix_setuid($uuid["uid"])) {
+            fatal("Can't setuid to ".$uuid["uid"]);
+        }
+    }
+} else {
+    if (isset($options["g"]) || isset($options["u"])) {
+        fatal("Can't setuid or setgid when launched as non-root");
+    }
+}
+
+// max number of open files descriptors
+$maxfiles=0;
+if (isset($options["f"])) {
+    $maxfiles=intval($options["f"]);
+}
+if (!$maxfiles<=0) {
+    // default to the max number of allowed open files - 4
+    $tmp=posix_getrlimit("openfiles");
+    $maxfiles=min($tmp["soft openfiles"],$tmp["hard openfiles"])-4;
+}
+// if nothing works, use 200...
+if ($maxfiles<=0) 
+    $maxfiles=200;
+
+// max file size if requested
+$maxsize=false;
+if (isset($options["r"])) {
+    $maxsize=intval($options["r"]);
+    if ($maxsize<=0) $maxsize=104857600; // if bad value required, set it to 100MB
+}
+
+$template=false;
+if (isset($options["t"])) {
+    $template=$options["t"];
+} else {
+    $template="%m%d%Y";
+    if (isset($options["r"])) {
+        $template.="-%T";
+    }
+    if (isset($options["e"])) {
+        $template.="-error.log";
+    } else {
+        $template.="-access.log";
+    }
+}
+
+$symlink=false;
+if (isset($options["s"])) {
+    $symlink=$options["s"];
+}
+
+// ----------------------------------------------------------------------
+// WORKING CODE
+
+chdir($logdir);
+
+if ( isset($options['e']) ) { // ERRORLOG mode
+
+    /* open the next error log file, set the symlink */
+    function open_errorlog() {
+        global $elog,$template,$initlogtime;
+        $initlogtime=time();
+        $elog=fopen(time2str($template,$initlogtime),"ab");
+        if (!$elog) fatal("Can't open ".$logdir."/".time2str($template,$initlogtime));
+        if ($symlink) {
+            if (is_link($symlink))
+                unlink($symlink);
+        }
+        symlink( time2str( $template, $initlogtime ), $symlink );
+    }
+        
+    cli_set_process_title("vlogger (error log)");
+    open_errorlog();
+    $lastwrite = $initlogtime;
+    $stdin=fopen("php://stdin","rb");
+    
+    while ($log_line = fgets($stdin,65536)) {
+        $logtime = time();
+        if (!isset($options["n"])) {
+            // shall we rotate?
+            if ( daytime($logtime) > daytime($lastwrite) ) {
+                fclose($elog);
+                open_errorlog();
+            }
+            elseif ($maxsize) {
+                $stat=fstat($elog);
+                if ( $stat["size"] > $maxsize ) {
+                    fclose($elog);
+                    open_errorlog();
+                }
+            }
+            $lastwrite = $logtime;
+        }
+        // handles the flush (or not)
+        myfputs($elog,$log_line);
+    }
+
+} else { // ACCESSLOG mode
+
+    $logs=[]; // a hash of file handles to log files.
+    $lru=[]; // a hash of vhosts: the lru table to remember which vhost was unused for the longest time.
+
+    cli_set_process_title("vlogger (access log)");
+
+    $stdin=fopen("php://stdin","rb");
+
+    while ($log_line = fgets($stdin,65536)) {
+        $logtime = time();
+
+        // parse out the first word (the vhost or anything the admin wants)
+        list($vhost,$line) = preg_split("/\s/", $log_line,2); // $line WILL end with a \n
+        $vhost = strtolower($vhost); 
+        if (!$vhost) $vhost="default";
+        if (strpos($vhost,"/")!==false) $vhost="default";
+
+        // if we're writing to a log, and it rolls to a new day, close all files.
+        if (!isset($options["n"])) {
+            if ( isset($logs[$vhost])
+                 && ( daytime($logtime) > daytime($lru[$vhost]) ) ) {
+                foreach($logs as $fh) {
+                    fclose($fh);
+                }
+                $logs = [];
+                $lru = [];
+            }
+            elseif ( $maxsize && isset($logs[$vhost]) ) {
+                $stat = fstat($logs[$vhost]); 
+                if ( $stat["size"] > $maxsize ) {
+                    fclose($logs[$vhost]);
+                    unset($logs[$vhost]);
+                    unset($lru[$vhost]);
+                }
+            }
+        }
+
+        // open a new log
+        if (!isset($logs[$vhost])) {
+
+            clearstatcache();
+            // check how many files we have open, close the oldest one
+            if ( count($logs) >= $maxfiles ) {
+                asort($lru);
+                $vhost=array_shift($lru); 
+                fclose($logs[$vhost]);
+                unset($logs[$vhost]);
+            }
+
+            if (!is_dir($vhost)) {
+                mkdir($vhost);
+            }
+
+            // open the file using the template
+            $logs[$vhost]=fopen($vhost."/".time2str($template,$logtime),"ab");
+            if (!$logs[$vhost]) fatal("can't open $logdir/$vhost/". time2str($template,$logtime));
+
+            // make a symlink if -s
+            if ( isset($options["s"])) {
+                if ( is_link($vhost."/".$options["s"])) {
+                    unlink($vhost."/".$options["s"]);
+                }
+                symlink( time2str($template,$logtime), $vhost."/".$options["s"]);
+            }
+        } // log exist?
+        
+        // update the timestamp and write the line
+        $lru[$vhost] = $logtime;
+        fputs($logs[$vhost],$line);
+        
+    } // get all log lines
+} // accesslog mode
+
+
+
+// ----------------------------------------------------------------------
+// print usage info
+function usage() {
+    echo("Usage: vlogger [OPTIONS]... <LOGDIR>\n");
+    echo("Handles a piped logfile from a webserver, splitting it into it's\n");
+    echo("host components, and rotates the files daily.\n\n");
+    echo("  -a                          do NOT autoflush files\n");
+    echo("  -e                          errorlog mode\n");
+    echo("  -n                          don't rotate files\n");
+    echo("  -f MAXFILES                 max number of files to keep open\n");
+    echo("  -u UID                      uid to switch to when running as root\n");
+    echo("  -g GID                      gid to switch to when running as root\n");
+    echo("  -t TEMPLATE                 filename template (see man strftime)\n");
+    echo("  -s SYMLINK                  maintain a symlink to most recent file\n");
+    echo("  -r SIZE                     rotate when file reaches SIZE\n");
+    echo("  -d CONFIG                   ignored (and not implemented from perl-vlogger)\n");
+    echo("  -i                          ignored (and not implemented from perl-vlogger)\n");
+    echo("  -h                          display this help\n");
+    echo("  -v                          output version information\n\n");
+    echo("TEMPLATE may be a filename with strftime codes. The default template\n");
+    echo("is %m%d%Y-access.log. SYMLINK is the name of a file that will be linked to\n");
+    echo("the most recent file inside the log directory. The default is access.log.\n");
+    echo("MAXFILES is the maximum number of filehandles to cache. The defaults is taken from ulimit.\n");
+    echo("When running with -a, performance may improve, but this might confuse some\n");
+    echo("log analysis software that expects complete log entries at all times.\n");
+    echo("Errorlog mode is used when running with an Apache errorlog. In this mode,\n");
+    echo("virtualhost parsing is disabled, and a single file is written in LOGDIR\n");
+    echo("using the TEMPLATE (%m%d%Y-error.log is default for -e). When running with\n");
+    echo("-r, the template becomes %m%d%Y-%T-xxx.log. SIZE is given in bytes.\n\n");
+    echo("Report bugs to <benjamin@octopuce.fr>.\n");
+    exit();
+}
+
+
+
