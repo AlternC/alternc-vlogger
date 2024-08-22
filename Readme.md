@@ -1,43 +1,43 @@
 # Purpose #
 
 This package provides an alternative to [vlogger package](https://packages.debian.org/vlogger).
-Vlogger is no more provided from [bookworm](https://packages.debian.org/bookworm/vlogger) but AlternC requires it to manage all apache2 vhost log.
+Vlogger is no more provided from [bookworm](https://packages.debian.org/bookworm/vlogger) but AlternC requires it to manage all apache2 vhost logs.
 
 # Get the package #
 
-## Build own package ##
+## Build your own package ##
 
 You can compile this package with:
 
 ```
     apt install build-essential debhelper git
     git clone https://github.com/AlternC/alternc-vlogger
-    cd alternc-a
+    cd alternc-vlogger
     dpkg-buildpackage -us -uc
 ```
 
 ## From GitHub ##
 
-You can obtain nightly and last stable package from the dedicated page : [releases page](https://github.com/AlternC/alternc-vlogger/releases)
+You can obtain nightly and last stable package from the [releases page](https://github.com/AlternC/alternc-vlogger/releases).
 
 ## From our repository ##
 
 Our stable repository is avalaible at https://debian.alternc.org
 
 ```
-echo "deb http://debian.alternc.org/ $(lsb_release -cs) main" >> /etc/apt/sources.list.d/alternc.list
-wget https://debian.alternc.org/key.txt -O - | apt-key add -
+echo "deb [signed-by=/usr/share/keyrings/alternc-keyring.gpg] http://debian.alternc.org/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/alternc.list
+sudo wget https://debian.alternc.org/key.txt -O /usr/share/keyrings/alternc-keyring.gpg
 apt update
 ```
 
 # Dependency #
 
-It's a standalone package.
+It's a standalone package that only depends on php-cli (version between 5.6 and 8.2 included tested).
 
 
 # How to use #
 
-This package provides a vlogger script wrote in PHP with similar arguments.
+This package provides a replacement for the vlogger Perl script, written in PHP, with similar arguments.
 
 ```
 Usage: vlogger [OPTIONS]... <LOGDIR>
@@ -69,5 +69,4 @@ virtualhost parsing is disabled, and a single file is written in LOGDIR
 using the TEMPLATE (%m%d%Y-error.log is default for -e). When running with
 -r, the template becomes %m%d%Y-%T-xxx.log. SIZE is given in bytes.
 
-Report bugs to <benjamin@octopuce.fr>.
 ```

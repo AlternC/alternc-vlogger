@@ -156,7 +156,7 @@ if ( isset($options['e']) ) { // ERRORLOG mode
     $lastwrite = $initlogtime;
     $stdin=fopen("php://stdin","rb");
     
-    while ($log_line = fgets($stdin,65536)) {
+    while ($log_line = fgets($stdin,1048576)) {
         $logtime = time();
         if (!isset($options["n"])) {
             // shall we rotate?
@@ -186,7 +186,7 @@ if ( isset($options['e']) ) { // ERRORLOG mode
 
     $stdin=fopen("php://stdin","rb");
 
-    while ($log_line = fgets($stdin,65536)) {
+    while ($log_line = fgets($stdin,1048576)) {
         $logtime = time();
 
         // parse out the first word (the vhost or anything the admin wants)
@@ -282,7 +282,6 @@ function usage() {
     echo("virtualhost parsing is disabled, and a single file is written in LOGDIR\n");
     echo("using the TEMPLATE (%m%d%Y-error.log is default for -e). When running with\n");
     echo("-r, the template becomes %m%d%Y-%T-xxx.log. SIZE is given in bytes.\n\n");
-    echo("Report bugs to <benjamin@octopuce.fr>.\n");
     exit();
 }
 
