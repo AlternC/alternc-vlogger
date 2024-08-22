@@ -10,6 +10,7 @@ Priority: optional
 Section: admin
 Architecture: all
 Depends: php
+Provides: vlogger
 Description: Vlogger alternative wrote in PHP
  .
  More information on https://www.alternc.com/
