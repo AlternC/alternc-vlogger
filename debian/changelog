@@ -1,0 +1,6 @@
+alternc-vlogger (0.0.1) bookworm; urgency=medium
+
+  * Provide an alternative to vlogger 
+
+ -- Camille Lafitte <alternc@webelys.com>  Tue, 22 Aug 2024 10:04:00 +0200
+

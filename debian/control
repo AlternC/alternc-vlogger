@@ -1,0 +1,15 @@
+Source: alternc-vlogger
+Section: admin
+Priority: optional
+Maintainer: Benjamin Sonntag <benjamin@sonntag.fr>
+Build-Depends: debhelper (>= 8)
+Standards-Version: 3.9.8
+
+Package: alternc-vlogger
+Priority: optional
+Section: admin
+Architecture: all
+Depends: php
+Description: Vlogger alternative wrote in PHP
+ .
+ More information on https://www.alternc.com/
