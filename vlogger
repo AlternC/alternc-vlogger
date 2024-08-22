@@ -140,7 +140,7 @@ if ( isset($options['e']) ) { // ERRORLOG mode
 
     /* open the next error log file, set the symlink */
     function open_errorlog() {
-        global $elog,$template,$initlogtime;
+        global $elog,$template,$initlogtime,$symlink;
         $initlogtime=time();
         $elog=fopen(time2str($template,$initlogtime),"ab");
         if (!$elog) fatal("Can't open ".$logdir."/".time2str($template,$initlogtime));
