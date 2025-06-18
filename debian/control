@@ -11,6 +11,8 @@ Section: admin
 Architecture: all
 Depends: php
 Provides: vlogger
+Conflicts: vlogger
+Replaces: vlogger
 Description: Vlogger alternative wrote in PHP
  .
  More information on https://www.alternc.com/
