@@ -9,7 +9,7 @@ Package: alternc-vlogger
 Priority: optional
 Section: admin
 Architecture: all
-Depends: php
+Depends: php8.2 | php5.6
 Provides: vlogger
 Conflicts: vlogger
 Replaces: vlogger
