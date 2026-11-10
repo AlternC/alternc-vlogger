@@ -1,3 +1,9 @@
+alternc-vlogger (0.1.0) buster bullseye bookworm; urgency=medium
+
+  * Get a default php compatible with default version, don't retrieve too recent PHP version
+
+ -- Camille Lafitte <alternc@webelys.com>  Tue, 10 Nov 2026 08:31:00 +0100
+
 alternc-vlogger (0.0.2) buster bullseye bookworm; urgency=medium
 
   * Prevent conflict and replace gracefully vlogger if yet present
